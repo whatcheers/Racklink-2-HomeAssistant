@@ -132,9 +132,82 @@ class RackLinkCoordinator(DataUpdateCoordinator):
                         "name": f"Outlet {i}",
                     }
 
-            _LOGGER.debug("Data update complete: %d outlets", len(outlets))
+            # Fetch sensor data (temperature, voltage, current, power, etc.)
+            _LOGGER.debug("Fetching sensor data...")
+            sensors: dict[str, float | None] = {}
+            try:
+                # Temperature (0x50)
+                _LOGGER.debug("Reading temperature (0x50)...")
+                temp = await self.client.get_temperature()
+                if temp is not None:
+                    _LOGGER.debug("Temperature: %.1f°F", temp)
+                    sensors["temperature"] = temp
+                else:
+                    _LOGGER.debug("Temperature: No data")
+                
+                # Voltage RMS (0x51)
+                _LOGGER.debug("Reading voltage (0x51)...")
+                voltage = await self.client.get_voltage()
+                if voltage is not None:
+                    _LOGGER.debug("Voltage: %.1fV", voltage)
+                    sensors["voltage"] = voltage
+                else:
+                    _LOGGER.debug("Voltage: No data")
+                
+                # Current RMS (0x52)
+                _LOGGER.debug("Reading current (0x52)...")
+                current = await self.client.get_current()
+                if current is not None:
+                    _LOGGER.debug("Current: %.2fA", current)
+                    sensors["current"] = current
+                else:
+                    _LOGGER.debug("Current: No data")
+                
+                # Power/Wattage (0x53)
+                _LOGGER.debug("Reading power (0x53)...")
+                power = await self.client.get_power()
+                if power is not None:
+                    _LOGGER.debug("Power: %.1fW", power)
+                    sensors["power"] = power
+                else:
+                    _LOGGER.debug("Power: No data")
+                
+                # Power Factor (0x54)
+                _LOGGER.debug("Reading power factor (0x54)...")
+                power_factor = await self.client.get_power_factor()
+                if power_factor is not None:
+                    _LOGGER.debug("Power Factor: %.3f", power_factor)
+                    sensors["power_factor"] = power_factor
+                else:
+                    _LOGGER.debug("Power Factor: No data")
+                
+                # Thermal Load (0x55)
+                _LOGGER.debug("Reading thermal load (0x55)...")
+                thermal_load = await self.client.get_thermal_load()
+                if thermal_load is not None:
+                    _LOGGER.debug("Thermal Load: %.1f", thermal_load)
+                    sensors["thermal_load"] = thermal_load
+                else:
+                    _LOGGER.debug("Thermal Load: No data")
+                
+                # Occupancy (0x56)
+                _LOGGER.debug("Reading occupancy (0x56)...")
+                occupancy = await self.client.get_occupancy()
+                if occupancy is not None:
+                    _LOGGER.debug("Occupancy: %.0f", occupancy)
+                    sensors["occupancy"] = occupancy
+                else:
+                    _LOGGER.debug("Occupancy: No data")
+                    
+                _LOGGER.debug("Sensor data fetch complete. Got %d sensors", len(sensors))
+            except Exception as sensor_err:
+                _LOGGER.warning("Error fetching sensors: %s", sensor_err, exc_info=True)
+
+            _LOGGER.debug("Data update complete: %d outlets, %d sensors", 
+                         len(outlets), len(sensors))
             return {
                 "outlets": outlets,
+                "sensors": sensors,
                 "connected": True,
             }
         except UpdateFailed:
