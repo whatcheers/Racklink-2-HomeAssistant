@@ -1,0 +1,7 @@
+{
+  "name": "RackLink™ Protocol Explorer",
+  "description": "A comprehensive developer tool for building, parsing, and understanding the Middle Atlantic RackLink™ control system communication protocol. Includes a visual packet builder, real-time parser, and an AI assistant trained on the protocol manual.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
