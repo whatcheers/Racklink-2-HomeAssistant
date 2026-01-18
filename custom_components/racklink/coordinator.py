@@ -79,33 +79,52 @@ class RackLinkCoordinator(DataUpdateCoordinator):
                         _LOGGER.warning("Using default outlet count of 8")
                         self._outlet_count = 8  # Default fallback
                     else:
-                        # Safety: Cap at 16
+                        # Safety: Cap at 8 (RLNK-SW715R has 8 outlets)
                         if count > 16:
-                            _LOGGER.warning("Outlet count %d seems too high, capping at 16", count)
-                            count = 16
+                            _LOGGER.warning("Outlet count %d seems invalid, defaulting to 8", count)
+                            count = 8
                         _LOGGER.debug("Outlet count retrieved: %d", count)
                         self._outlet_count = count
                 else:
-                    # Safety: Cap at 16
+                    # Safety: Cap at 8 (RLNK-SW715R has 8 outlets)
                     if count > 16:
-                        _LOGGER.warning("Outlet count %d seems too high, capping at 16", count)
-                        count = 16
+                        _LOGGER.warning("Outlet count %d seems invalid, defaulting to 8", count)
+                        count = 8
                     _LOGGER.debug("Outlet count: %d", count)
                     self._outlet_count = count
 
             # Just fetch outlet names for now - keep it simple
-            # Safety: Cap outlet count at 16 maximum (most devices have 8)
-            outlet_count = min(self._outlet_count or 8, 16)
+            # Safety: Cap outlet count at 8 (RLNK-SW715R has 8 outlets)
+            outlet_count = min(self._outlet_count or 8, 8)
             _LOGGER.debug("Fetching outlet names for %d outlets (capped at 16)", outlet_count)
             outlets: dict[int, dict] = {}
             for i in range(1, outlet_count + 1):
                 try:
+                    # Check connection before each request
+                    if not self.client._connected:
+                        _LOGGER.warning("Connection lost, reconnecting before fetching outlet %d name...", i)
+                        await self.client.disconnect()
+                        if not await self.client.connect():
+                            _LOGGER.error("Failed to reconnect")
+                            break
+                        if not await self.client.login(self.username, self.password):
+                            _LOGGER.error("Failed to re-login")
+                            await self.client.disconnect()
+                            break
+                    
                     _LOGGER.debug("Fetching outlet %d name...", i)
                     name = await self.client.get_outlet_name(i)
                     _LOGGER.debug("Outlet %d name: %s", i, name)
                     outlets[i] = {
                         "name": name or f"Outlet {i}",
                     }
+                except ConnectionError:
+                    _LOGGER.warning("Connection lost while fetching outlet %d name, will retry next update", i)
+                    outlets[i] = {
+                        "name": f"Outlet {i}",
+                    }
+                    # Mark as disconnected so we reconnect next time
+                    self.client._connected = False
                 except Exception as outlet_err:
                     _LOGGER.warning("Error fetching outlet %d name: %s", i, outlet_err, exc_info=True)
                     # Continue with other outlets

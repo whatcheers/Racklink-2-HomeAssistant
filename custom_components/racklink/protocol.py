@@ -365,17 +365,38 @@ class RackLinkProtocol:
         """Get the number of power outlets.
         
         Per protocol manual: Response contains a single byte with outlet count.
+        The response format is: [0x00, CMD_OUTLET_COUNT, SUB_RESPONSE, count_byte]
         """
         response = await self.send_command(CMD_OUTLET_COUNT, SUB_GET)
         if response and response["command"] == CMD_OUTLET_COUNT and response["subcommand"] == SUB_RESPONSE:
             if response["data"]:
+                # Log full response for debugging
+                _LOGGER.debug("Outlet count response - full data: %s (hex: %s)", 
+                            response["data"], [hex(b) for b in response["data"]])
+                
+                # Try to parse the count
+                # According to protocol, it should be a single byte
                 count = response["data"][0]
-                _LOGGER.debug("Outlet count response data: %s, parsed count: %d", 
-                            [hex(b) for b in response["data"]], count)
+                
+                # Check if this looks like ASCII (common mistake)
+                # If count is > 127, it's definitely wrong
+                # If count is in ASCII range for digits, it might be ASCII encoded
+                if 0x30 <= count <= 0x39:  # ASCII '0'-'9'
+                    # It's ASCII encoded, convert it
+                    count = count - 0x30
+                    _LOGGER.debug("Outlet count was ASCII encoded, converted: %d", count)
+                elif count > 127:
+                    _LOGGER.warning("Outlet count byte value %d (0x%02X) is invalid, using default 8", count, count)
+                    return 8
+                
+                _LOGGER.debug("Parsed outlet count: %d", count)
+                
                 # Safety check: cap at reasonable maximum (most devices have 8-16 outlets)
-                if count > 32:
-                    _LOGGER.warning("Outlet count seems too high (%d), capping at 16", count)
-                    return 16
+                # If count is > 16, it's definitely wrong - default to 8
+                if count > 16:
+                    _LOGGER.warning("Outlet count %d (0x%02X) seems invalid, defaulting to 8 outlets", count, count)
+                    _LOGGER.debug("This might indicate a parsing issue - check protocol manual for correct response format")
+                    return 8
                 if count == 0:
                     _LOGGER.warning("Outlet count is 0, using default of 8")
                     return 8
