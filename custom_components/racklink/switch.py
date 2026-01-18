@@ -67,7 +67,9 @@ class RackLinkOutlet(CoordinatorEntity, SwitchEntity):
     def is_on(self) -> bool:
         """Return true if outlet is on."""
         outlet_data = self.coordinator.data.get("outlets", {}).get(self._outlet_index, {})
-        return outlet_data.get("state", False)
+        state = outlet_data.get("state")
+        # If state is None, return False (unknown state)
+        return state is True
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the outlet on."""
