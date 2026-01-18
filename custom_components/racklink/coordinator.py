@@ -79,16 +79,25 @@ class RackLinkCoordinator(DataUpdateCoordinator):
                         _LOGGER.warning("Using default outlet count of 8")
                         self._outlet_count = 8  # Default fallback
                     else:
+                        # Safety: Cap at 16
+                        if count > 16:
+                            _LOGGER.warning("Outlet count %d seems too high, capping at 16", count)
+                            count = 16
                         _LOGGER.debug("Outlet count retrieved: %d", count)
                         self._outlet_count = count
                 else:
+                    # Safety: Cap at 16
+                    if count > 16:
+                        _LOGGER.warning("Outlet count %d seems too high, capping at 16", count)
+                        count = 16
                     _LOGGER.debug("Outlet count: %d", count)
                     self._outlet_count = count
 
             # Just fetch outlet names for now - keep it simple
-            _LOGGER.debug("Fetching outlet names for %d outlets", self._outlet_count or 8)
+            # Safety: Cap outlet count at 16 maximum (most devices have 8)
+            outlet_count = min(self._outlet_count or 8, 16)
+            _LOGGER.debug("Fetching outlet names for %d outlets (capped at 16)", outlet_count)
             outlets: dict[int, dict] = {}
-            outlet_count = self._outlet_count or 8
             for i in range(1, outlet_count + 1):
                 try:
                     _LOGGER.debug("Fetching outlet %d name...", i)

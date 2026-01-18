@@ -362,11 +362,28 @@ class RackLinkProtocol:
         return response
 
     async def get_outlet_count(self) -> int | None:
-        """Get the number of power outlets."""
+        """Get the number of power outlets.
+        
+        Per protocol manual: Response contains a single byte with outlet count.
+        """
         response = await self.send_command(CMD_OUTLET_COUNT, SUB_GET)
         if response and response["command"] == CMD_OUTLET_COUNT and response["subcommand"] == SUB_RESPONSE:
             if response["data"]:
-                return response["data"][0]
+                count = response["data"][0]
+                _LOGGER.debug("Outlet count response data: %s, parsed count: %d", 
+                            [hex(b) for b in response["data"]], count)
+                # Safety check: cap at reasonable maximum (most devices have 8-16 outlets)
+                if count > 32:
+                    _LOGGER.warning("Outlet count seems too high (%d), capping at 16", count)
+                    return 16
+                if count == 0:
+                    _LOGGER.warning("Outlet count is 0, using default of 8")
+                    return 8
+                return count
+            else:
+                _LOGGER.debug("Outlet count response has no data")
+        else:
+            _LOGGER.debug("Invalid outlet count response: %s", response)
         return None
 
     async def get_outlet_state(self, outlet_index: int) -> bool | None:

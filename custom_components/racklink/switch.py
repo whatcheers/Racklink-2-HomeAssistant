@@ -29,10 +29,16 @@ async def async_setup_entry(
     await coordinator.async_config_entry_first_refresh()
 
     outlets = coordinator.data.get("outlets", {})
+    
+    # Safety: Only create entities for outlets 1-16 maximum
     entities = [
         RackLinkOutlet(coordinator, outlet_index, outlet_data)
         for outlet_index, outlet_data in outlets.items()
+        if 1 <= outlet_index <= 16
     ]
+    
+    _LOGGER.info("Creating %d outlet switch entities (outlets 1-%d)", 
+                len(entities), max([e._outlet_index for e in entities] if entities else [0]))
 
     async_add_entities(entities)
 
