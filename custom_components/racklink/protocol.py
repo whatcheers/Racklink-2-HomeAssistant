@@ -39,15 +39,22 @@ class RackLinkProtocol:
 
     async def connect(self) -> bool:
         """Connect to the RackLink device."""
+        _LOGGER.debug("Attempting to connect to %s:%d", self.host, self.port)
         try:
             self._reader, self._writer = await asyncio.wait_for(
                 asyncio.open_connection(self.host, self.port), timeout=5.0
             )
             self._connected = True
             _LOGGER.info("Connected to RackLink device at %s:%d", self.host, self.port)
+            _LOGGER.debug("TCP connection established successfully")
             return True
-        except (asyncio.TimeoutError, OSError) as err:
-            _LOGGER.error("Failed to connect to RackLink device: %s", err)
+        except asyncio.TimeoutError:
+            _LOGGER.error("Connection timeout to %s:%d", self.host, self.port)
+            self._connected = False
+            return False
+        except OSError as err:
+            _LOGGER.error("Failed to connect to RackLink device %s:%d: %s (errno: %d)", 
+                         self.host, self.port, err, err.errno if hasattr(err, 'errno') else 0)
             self._connected = False
             return False
 
@@ -112,18 +119,26 @@ class RackLinkProtocol:
         
         # Build packet: header, length, escaped_envelope, checksum, tail
         packet = bytes([header, length] + escaped_envelope + [checksum, tail])
+        _LOGGER.debug("Built packet: len=%d, checksum=0x%02X, envelope=%s", 
+                     length, checksum, [hex(b) for b in data_envelope])
         return packet
 
     def parse_packet(self, packet: bytes) -> dict[str, Any] | None:
         """Parse a protocol packet."""
+        _LOGGER.debug("Parsing packet: %s", packet.hex(' ').upper())
         if len(packet) < 5:
+            _LOGGER.debug("Packet too short: %d bytes", len(packet))
             return None
         
         if packet[0] != PROTOCOL_HEADER or packet[-1] != PROTOCOL_TAIL:
+            _LOGGER.debug("Invalid header/tail: header=0x%02X, tail=0x%02X", 
+                         packet[0], packet[-1])
             return None
         
         length = packet[1]
         if len(packet) != length + 4:  # header + length + data + checksum + tail
+            _LOGGER.debug("Packet length mismatch: expected %d, got %d", 
+                         length + 4, len(packet))
             return None
         
         # Extract escaped envelope and checksum
@@ -141,14 +156,19 @@ class RackLinkProtocol:
             return None
         
         if len(data_envelope) < 3:
+            _LOGGER.debug("Data envelope too short: %d bytes", len(data_envelope))
             return None
         
-        return {
+        parsed = {
             "destination": data_envelope[0],
             "command": data_envelope[1],
             "subcommand": data_envelope[2],
             "data": data_envelope[3:] if len(data_envelope) > 3 else [],
         }
+        _LOGGER.debug("Parsed packet: dest=0x%02X, cmd=0x%02X, sub=0x%02X, data_len=%d",
+                     parsed["destination"], parsed["command"], parsed["subcommand"], 
+                     len(parsed["data"]))
+        return parsed
 
     async def send_packet(self, packet: bytes) -> None:
         """Send a packet to the device."""
@@ -231,12 +251,14 @@ class RackLinkProtocol:
         Per protocol manual: After login, device sends a SET ping message
         that must be responded to with a RESPONSE message.
         """
+        _LOGGER.debug("Attempting login for user: %s", username)
         login_str = f"{username}|{password}"
         data_envelope = [0x00, CMD_LOGIN, SUB_SET] + list(login_str.encode("ascii"))
         packet = self.build_packet(data_envelope)
         
-        _LOGGER.debug("Sending login packet")
+        _LOGGER.debug("Sending login packet (length: %d bytes)", len(packet))
         await self.send_packet(packet)
+        _LOGGER.debug("Waiting for login response...")
         response = await self.receive_packet(timeout=5.0)
         
         if not response:
@@ -316,10 +338,19 @@ class RackLinkProtocol:
         if data:
             data_envelope.extend(data)
         
+        _LOGGER.debug("Sending command: 0x%02X, subcommand: 0x%02X, data: %s", 
+                     command, subcommand, [hex(b) for b in data] if data else "None")
         packet = self.build_packet(data_envelope)
+        _LOGGER.debug("Packet: %s", packet.hex(' ').upper())
         await self.send_packet(packet)
         
         response = await self.receive_packet(timeout=5.0)
+        
+        if response:
+            _LOGGER.debug("Response received: cmd=0x%02X, sub=0x%02X, data_len=%d", 
+                         response["command"], response["subcommand"], len(response["data"]))
+        else:
+            _LOGGER.debug("No response received for command 0x%02X", command)
         
         # Check for NACK
         if response and response["command"] == CMD_NACK:
@@ -365,19 +396,31 @@ class RackLinkProtocol:
 
     async def _get_sensor_value(self, command: int) -> float | None:
         """Get a sensor value (generic helper)."""
+        _LOGGER.debug("Getting sensor value for command 0x%02X", command)
         response = await self.send_command(command, SUB_GET)
         if response and response["command"] == command and response["subcommand"] == SUB_RESPONSE:
             if response["data"]:
                 try:
                     # Sensor values are typically ASCII-encoded
-                    value_str = bytes(response["data"]).decode("ascii", errors="ignore").strip()
+                    raw_data = bytes(response["data"])
+                    value_str = raw_data.decode("ascii", errors="ignore").strip()
+                    _LOGGER.debug("Raw sensor data (0x%02X): %s (hex: %s)", 
+                                command, value_str, raw_data.hex(' '))
                     # Remove any trailing commas or non-numeric characters
                     value_str = value_str.rstrip(", \x00")
                     if value_str:
-                        return float(value_str)
-                except (ValueError, TypeError):
-                    _LOGGER.debug("Failed to parse sensor value for command 0x%02X: %s", 
-                                command, response["data"])
+                        parsed_value = float(value_str)
+                        _LOGGER.debug("Parsed sensor value (0x%02X): %f", command, parsed_value)
+                        return parsed_value
+                    else:
+                        _LOGGER.debug("Empty sensor value string for command 0x%02X", command)
+                except (ValueError, TypeError) as e:
+                    _LOGGER.debug("Failed to parse sensor value for command 0x%02X: %s (data: %s)", 
+                                command, e, response["data"])
+            else:
+                _LOGGER.debug("No data in response for sensor command 0x%02X", command)
+        else:
+            _LOGGER.debug("Invalid response for sensor command 0x%02X: %s", command, response)
         return None
 
     async def get_temperature(self) -> float | None:

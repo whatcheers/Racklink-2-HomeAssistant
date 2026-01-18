@@ -93,21 +93,34 @@ This will help identify specific connection issues.
 - Can use any admin account with control protocol enabled
 - No default "user" account
 
+## Enabling Debug Logging
+
+To see detailed debug information, add this to your `configuration.yaml`:
+
+```yaml
+logger:
+  default: info
+  logs:
+    custom_components.racklink: debug
+```
+
+Then restart Home Assistant. You'll see detailed logs for:
+- Connection attempts and status
+- All commands sent and responses received
+- Packet building and parsing
+- Sensor value reading and parsing
+- Outlet state fetching
+- Error details with stack traces
+
 ## Getting Help
 
 If issues persist:
 1. Check Home Assistant logs: **Settings** → **System** → **Logs**
-2. Enable debug logging for the integration:
-   ```yaml
-   logger:
-     default: info
-     logs:
-       custom_components.racklink: debug
-   ```
+2. Enable debug logging (see above)
 3. Run the diagnostic tool and share the output
 4. Open an issue on GitHub with:
    - Device model
    - Home Assistant version
    - Integration version
-   - Relevant log excerpts
+   - Relevant log excerpts (with debug logging enabled)
    - Diagnostic tool output
