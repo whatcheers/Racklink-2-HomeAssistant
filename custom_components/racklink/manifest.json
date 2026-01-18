@@ -1,0 +1,13 @@
+{
+  "domain": "racklink",
+  "name": "RackLink",
+  "codeowners": ["@whatcheer"],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/whatcheer/Racklink-2-HomeAssistant",
+  "integration_type": "hub",
+  "iot_class": "Local Polling",
+  "issue_tracker": "https://github.com/whatcheer/Racklink-2-HomeAssistant/issues",
+  "requirements": [],
+  "version": "1.0.0"
+}
