@@ -154,8 +154,13 @@ class RackLinkProtocol:
         """Send a packet to the device."""
         if not self._connected or not self._writer:
             raise ConnectionError("Not connected to device")
-        self._writer.write(packet)
-        await self._writer.drain()
+        try:
+            self._writer.write(packet)
+            await self._writer.drain()
+        except (OSError, ConnectionError) as e:
+            _LOGGER.debug("Connection lost during send: %s", e)
+            self._connected = False
+            raise ConnectionError(f"Connection lost: {e}") from e
 
     async def receive_packet(self, timeout: float = 5.0) -> dict[str, Any] | None:
         """Receive and parse a packet from the device."""
@@ -164,9 +169,15 @@ class RackLinkProtocol:
         
         try:
             # Read header first
-            header_bytes = await asyncio.wait_for(self._reader.read(1), timeout=timeout)
+            try:
+                header_bytes = await asyncio.wait_for(self._reader.read(1), timeout=timeout)
+            except (OSError, ConnectionError) as e:
+                _LOGGER.debug("Connection error during read: %s", e)
+                self._connected = False
+                return None
+                
             if not header_bytes:
-                _LOGGER.debug("No data received (connection closed?)")
+                _LOGGER.debug("No data received (connection closed)")
                 self._connected = False
                 return None
                 
@@ -351,3 +362,48 @@ class RackLinkProtocol:
                 name_bytes = response["data"][1:]
                 return bytes(name_bytes).decode("ascii", errors="ignore").rstrip("\x00")
         return None
+
+    async def _get_sensor_value(self, command: int) -> float | None:
+        """Get a sensor value (generic helper)."""
+        response = await self.send_command(command, SUB_GET)
+        if response and response["command"] == command and response["subcommand"] == SUB_RESPONSE:
+            if response["data"]:
+                try:
+                    # Sensor values are typically ASCII-encoded
+                    value_str = bytes(response["data"]).decode("ascii", errors="ignore").strip()
+                    # Remove any trailing commas or non-numeric characters
+                    value_str = value_str.rstrip(", \x00")
+                    if value_str:
+                        return float(value_str)
+                except (ValueError, TypeError):
+                    _LOGGER.debug("Failed to parse sensor value for command 0x%02X: %s", 
+                                command, response["data"])
+        return None
+
+    async def get_temperature(self) -> float | None:
+        """Get temperature in Fahrenheit (command 0x50)."""
+        return await self._get_sensor_value(0x50)
+
+    async def get_voltage(self) -> float | None:
+        """Get RMS voltage in volts (command 0x51)."""
+        return await self._get_sensor_value(0x51)
+
+    async def get_current(self) -> float | None:
+        """Get RMS current in amperes (command 0x52)."""
+        return await self._get_sensor_value(0x52)
+
+    async def get_power(self) -> float | None:
+        """Get power/wattage in watts (command 0x53)."""
+        return await self._get_sensor_value(0x53)
+
+    async def get_power_factor(self) -> float | None:
+        """Get power factor (command 0x54)."""
+        return await self._get_sensor_value(0x54)
+
+    async def get_thermal_load(self) -> float | None:
+        """Get thermal load (command 0x55)."""
+        return await self._get_sensor_value(0x55)
+
+    async def get_occupancy(self) -> float | None:
+        """Get occupancy status (command 0x56)."""
+        return await self._get_sensor_value(0x56)

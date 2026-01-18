@@ -9,5 +9,5 @@
   "iot_class": "Local Polling",
   "issue_tracker": "https://github.com/whatcheer/Racklink-2-HomeAssistant/issues",
   "requirements": [],
-  "version": "1.0.0"
+  "version": "1.1.0"
 }

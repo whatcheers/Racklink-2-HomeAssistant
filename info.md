@@ -7,6 +7,7 @@ Home Assistant integration for Middle Atlantic RackLink™ control systems (RLNK
 ## Features
 
 - ✅ **Power Outlet Control** - Control individual power outlets
+- ✅ **Sensor Monitoring** - Real-time voltage, current, power, temperature, and more
 - ✅ **Real-time Status** - Monitor outlet states and connection status
 - ✅ **Auto-discovery** - Automatic outlet discovery and naming
 - ✅ **Robust Connection** - Automatic reconnection and error handling
@@ -58,7 +59,14 @@ Home Assistant integration for Middle Atlantic RackLink™ control systems (RLNK
 - Control outlets on/off directly from Home Assistant
 
 ### Sensors
-- Connection status sensor
+- **Connection Status** - Device connection state
+- **Temperature** - Current temperature in Fahrenheit
+- **Voltage** - RMS voltage in volts
+- **Current** - RMS current in amperes
+- **Power** - Power consumption in watts
+- **Power Factor** - Power factor measurement
+- **Thermal Load** - Thermal load measurement
+- **Occupancy** - Occupancy sensor status
 
 ## Protocol
 

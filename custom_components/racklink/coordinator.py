@@ -9,7 +9,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .const import CMD_PING, CMD_SENSORS_START, DOMAIN, SUB_GET
+from .const import DOMAIN
 from .protocol import RackLinkProtocol
 
 _LOGGER = logging.getLogger(__name__)
@@ -49,37 +49,89 @@ class RackLinkCoordinator(DataUpdateCoordinator):
                     await self.client.disconnect()
                     raise UpdateFailed("Failed to login to RackLink device")
 
-            # Try to ping to keep connection alive (optional - some devices don't respond to client pings)
-            # If ping fails, we'll test with a real command instead
-            try:
-                ping_result = await self.client.ping()
-                if not ping_result:
-                    _LOGGER.debug("Ping failed (device may not support client-initiated pings, will test with command)")
-                    # Don't fail here - test connection with actual command instead
-            except Exception as ping_err:
-                _LOGGER.debug("Ping error: %s (non-fatal, will test with command)", ping_err)
-
-            # Get outlet count if we don't have it
+            # Test connection with a real command (outlet count)
+            # This serves as both connection test and initialization
             if self._outlet_count is None:
-                self._outlet_count = await self.client.get_outlet_count()
-                if self._outlet_count is None:
-                    self._outlet_count = 8  # Default fallback
+                count = await self.client.get_outlet_count()
+                if count is None:
+                    # If we can't get count, connection might be lost
+                    _LOGGER.warning("Failed to get outlet count, connection may be lost")
+                    # Try to reconnect
+                    await self.client.disconnect()
+                    if not await self.client.connect():
+                        raise UpdateFailed("Failed to reconnect to RackLink device")
+                    if not await self.client.login(self.username, self.password):
+                        await self.client.disconnect()
+                        raise UpdateFailed("Failed to re-login to RackLink device")
+                    # Try again
+                    count = await self.client.get_outlet_count()
+                    if count is None:
+                        _LOGGER.warning("Using default outlet count of 8")
+                        self._outlet_count = 8  # Default fallback
+                    else:
+                        self._outlet_count = count
+                else:
+                    self._outlet_count = count
 
             # Fetch outlet states
             outlets: dict[int, dict] = {}
-            for i in range(1, (self._outlet_count or 8) + 1):
-                state = await self.client.get_outlet_state(i)
-                name = await self.client.get_outlet_name(i)
-                outlets[i] = {
-                    "state": state,
-                    "name": name or f"Outlet {i}",
-                }
+            outlet_count = self._outlet_count or 8
+            for i in range(1, outlet_count + 1):
+                try:
+                    state = await self.client.get_outlet_state(i)
+                    name = await self.client.get_outlet_name(i)
+                    outlets[i] = {
+                        "state": state,
+                        "name": name or f"Outlet {i}",
+                    }
+                except Exception as outlet_err:
+                    _LOGGER.warning("Error fetching outlet %d: %s", i, outlet_err)
+                    # Continue with other outlets
+                    outlets[i] = {
+                        "state": None,
+                        "name": f"Outlet {i}",
+                    }
 
-            # Fetch sensor data (temperature, voltage, current, etc.)
+            # Fetch sensor data (temperature, voltage, current, power, etc.)
             sensors: dict[str, float | None] = {}
-            # Sensor commands are 0x50-0x61 per protocol manual
-            # For now, fetch basic sensors
-            # TODO: Implement full sensor reading based on protocol manual
+            try:
+                # Temperature (0x50)
+                temp = await self.client.get_temperature()
+                if temp is not None:
+                    sensors["temperature"] = temp
+                
+                # Voltage RMS (0x51)
+                voltage = await self.client.get_voltage()
+                if voltage is not None:
+                    sensors["voltage"] = voltage
+                
+                # Current RMS (0x52)
+                current = await self.client.get_current()
+                if current is not None:
+                    sensors["current"] = current
+                
+                # Power/Wattage (0x53)
+                power = await self.client.get_power()
+                if power is not None:
+                    sensors["power"] = power
+                
+                # Power Factor (0x54)
+                power_factor = await self.client.get_power_factor()
+                if power_factor is not None:
+                    sensors["power_factor"] = power_factor
+                
+                # Thermal Load (0x55)
+                thermal_load = await self.client.get_thermal_load()
+                if thermal_load is not None:
+                    sensors["thermal_load"] = thermal_load
+                
+                # Occupancy (0x56)
+                occupancy = await self.client.get_occupancy()
+                if occupancy is not None:
+                    sensors["occupancy"] = occupancy
+                    
+            except Exception as sensor_err:
+                _LOGGER.warning("Error fetching sensors: %s", sensor_err)
 
             return {
                 "outlets": outlets,
